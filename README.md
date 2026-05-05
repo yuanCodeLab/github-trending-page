@@ -114,7 +114,7 @@ retry budget, so worst case is 10 attempts before the build fails.
 | Primary | `GEMINI_API_KEY` | secret | Required |
 | Primary | `GEMINI_BASE_URL` | var | Override endpoint (defaults to Google) |
 | Primary | `GEMINI_API_VERSION` | var | Override API version (defaults to `v1beta`) |
-| Primary | `GEMINI_MODEL` | var | Override model (default `gemini-2.5-flash-lite`) |
+| Primary | `GEMINI_MODEL` | var | Override model (default `gemini-2.5-flash`) |
 | Fallback | `GEMINI_FALLBACK_API_KEY` | secret | If set, fallback activates |
 | Fallback | `GEMINI_FALLBACK_BASE_URL` | var | Endpoint for fallback |
 | Fallback | `GEMINI_FALLBACK_API_VERSION` | var | API version for fallback |
@@ -125,8 +125,8 @@ Build start-up log lists the active providers in order:
 ```
 Refreshing for 2026-05-05
   translation providers (2):
-    primary: https://generativelanguage.googleapis.com/v1beta model=gemini-2.5-flash-lite
-    fallback: http://170.106.186.58/v1beta model=gemini-2.5-flash-lite
+    primary: https://generativelanguage.googleapis.com/v1beta model=gemini-2.5-flash
+    fallback: http://170.106.186.58/v1beta model=gemini-2.5-flash
 ```
 
 When a provider fails:
@@ -148,5 +148,5 @@ move proxy values from `GEMINI_FALLBACK_*` to `GEMINI_*` and vice-versa.
 - **GitHub Actions**: free for public repos; 2,000 minutes/month free for private.
   Each run takes ~30s, so ~15 minutes/month — comfortably within free tier.
 - **Gemini API**: ~70 short descriptions × ~150 tokens ≈ 11K tokens/day.
-  Default model `gemini-2.5-flash-lite` is on Google's free tier (and even at paid pricing
+  Default model `gemini-2.5-flash` is on Google's free tier (and even at paid pricing
   ~$0.10/M input, $0.40/M output it's well under $0.05/day).

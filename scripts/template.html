@@ -28,6 +28,25 @@
   .repo .stats .lang { display: inline-flex; align-items: center; gap: 5px; }
   .repo .stats .dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; border: 1px solid rgba(0,0,0,0.08); }
   .repo .stats .today { color: #1f2328; font-weight: 500; }
+
+  /* AI 增强面板(默认收起) */
+  .repo .ai-toggle { margin-left: 36px; margin-top: 10px; display: inline-flex; align-items: center; gap: 6px; background: #ffffff; border: 1px solid #d0d7de; border-radius: 999px; padding: 4px 10px 4px 8px; font: inherit; font-size: 12px; color: #1f2328; cursor: pointer; transition: all 0.15s; }
+  .repo .ai-toggle:hover { background: #f6f8fa; border-color: #1f2328; }
+  .repo .ai-toggle .badge { background: linear-gradient(90deg, #6e40c9, #1f2328); color: #fff; font-size: 9px; font-weight: 700; padding: 1px 5px; border-radius: 3px; letter-spacing: 0.04em; }
+  .repo .ai-toggle .chev { font-size: 9px; color: #59636e; transition: transform 0.15s; }
+  .repo .ai-toggle[aria-expanded="true"] .chev { transform: rotate(180deg); }
+  .ai-panel { margin: 12px 0 0 36px; background: #f6f8fa; border: 1px solid #d0d7de; border-radius: 8px; padding: 14px 16px; font-size: 13px; line-height: 1.55; }
+  .ai-panel section + section { margin-top: 12px; padding-top: 12px; border-top: 1px solid #e2e6ea; }
+  .ai-panel h3 { display: flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 600; color: #59636e; text-transform: uppercase; letter-spacing: 0.04em; margin: 0 0 6px 0; }
+  .ai-panel .summary-text { color: #1f2328; margin: 0; }
+  .ai-panel ul.scenarios { margin: 0; padding-left: 18px; color: #1f2328; }
+  .ai-panel ul.scenarios li { margin: 2px 0; }
+  .ai-panel .prompt-box { position: relative; }
+  .ai-panel pre.prompt { background: #ffffff; border: 1px solid #d0d7de; border-radius: 6px; padding: 10px 12px; font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace; font-size: 12px; line-height: 1.5; color: #1f2328; white-space: pre-wrap; word-break: break-word; margin: 0; max-height: 220px; overflow: auto; }
+  .ai-panel .copy-btn { position: absolute; top: 6px; right: 6px; background: #ffffff; border: 1px solid #d0d7de; border-radius: 5px; padding: 3px 8px; font-size: 11px; font-weight: 500; color: #1f2328; cursor: pointer; transition: all 0.15s; }
+  .ai-panel .copy-btn:hover { background: #f6f8fa; border-color: #1f2328; }
+  .ai-panel .copy-btn.copied { background: #dafbe1; border-color: #1a7f37; color: #1a7f37; }
+
   .empty { padding: 28px 0; color: #59636e; text-align: center; }
   .footer-note { margin-top: 24px; color: #8b949e; font-size: 11px; text-align: center; line-height: 1.6; }
 </style>
@@ -175,6 +194,41 @@ __DATASETS__
     });
   }
 
+  function hasAIData(r) {
+    return !!(r.summary_zh || (Array.isArray(r.scenarios) && r.scenarios.length) || r.agent_install_prompt);
+  }
+
+  function renderAIPanel(r, panelId) {
+    var parts = ['<div class="ai-panel" id="', panelId, '" hidden>'];
+    if (r.summary_zh) {
+      parts.push('<section>');
+      parts.push('<h3>AI 总结</h3>');
+      parts.push('<p class="summary-text">', escapeHTML(r.summary_zh), '</p>');
+      parts.push('</section>');
+    }
+    if (Array.isArray(r.scenarios) && r.scenarios.length) {
+      parts.push('<section>');
+      parts.push('<h3>适用场景</h3>');
+      parts.push('<ul class="scenarios">');
+      for (var j = 0; j < r.scenarios.length; j++) {
+        parts.push('<li>', escapeHTML(r.scenarios[j]), '</li>');
+      }
+      parts.push('</ul>');
+      parts.push('</section>');
+    }
+    if (r.agent_install_prompt) {
+      parts.push('<section>');
+      parts.push('<h3>AI Agent 安装提示词</h3>');
+      parts.push('<div class="prompt-box">');
+      parts.push('<pre class="prompt">', escapeHTML(r.agent_install_prompt), '</pre>');
+      parts.push('<button class="copy-btn" type="button">复制</button>');
+      parts.push('</div>');
+      parts.push('</section>');
+    }
+    parts.push('</div>');
+    return parts.join('');
+  }
+
   function render() {
     var repos = applyFilters(getRepos());
     if (!repos.length) {
@@ -183,7 +237,9 @@ __DATASETS__
     }
     var rows = repos.map(function (r, i) {
       var color = r.langColor || (r.lang && LANG_COLORS[r.lang]) || '#8b949e';
-      return [
+      var showAI = hasAIData(r);
+      var panelId = 'ai-panel-' + i;
+      var parts = [
         '<div class="repo">',
           '<div class="row1">',
             '<div class="rank">', String(i + 1).padStart(2, '0'), '</div>',
@@ -201,11 +257,73 @@ __DATASETS__
             r.forks ? '<span title="Forks">⑂ ' + fmtNum(r.forks) + '</span>' : '',
             r.today ? '<span class="today">▲ ' + escapeHTML(r.today) + '</span>' : '',
           '</div>',
-        '</div>'
-      ].join('');
+      ];
+      if (showAI) {
+        parts.push(
+          '<button class="ai-toggle" type="button" aria-expanded="false" aria-controls="', panelId, '">',
+            '<span class="badge">AI</span>',
+            '<span class="toggle-text">详情</span>',
+            '<span class="chev">▾</span>',
+          '</button>'
+        );
+        parts.push(renderAIPanel(r, panelId));
+      }
+      parts.push('</div>');
+      return parts.join('');
     });
     listEl.innerHTML = rows.join('');
   }
+
+  // Expand/collapse AI panel + copy install prompt to clipboard
+  listEl.addEventListener('click', function (e) {
+    var toggle = e.target.closest('.ai-toggle');
+    if (toggle) {
+      var panelId = toggle.getAttribute('aria-controls');
+      var panel = document.getElementById(panelId);
+      if (panel) {
+        var open = panel.hasAttribute('hidden') ? false : true;
+        if (open) {
+          panel.setAttribute('hidden', '');
+          toggle.setAttribute('aria-expanded', 'false');
+          toggle.querySelector('.toggle-text').textContent = '详情';
+        } else {
+          panel.removeAttribute('hidden');
+          toggle.setAttribute('aria-expanded', 'true');
+          toggle.querySelector('.toggle-text').textContent = '收起';
+        }
+      }
+      return;
+    }
+    var copyBtn = e.target.closest('.copy-btn');
+    if (copyBtn) {
+      var pre = copyBtn.parentElement.querySelector('pre.prompt');
+      var text = pre ? pre.textContent : '';
+      var done = function () {
+        copyBtn.textContent = '已复制 ✓';
+        copyBtn.classList.add('copied');
+        setTimeout(function () {
+          copyBtn.textContent = '复制';
+          copyBtn.classList.remove('copied');
+        }, 1800);
+      };
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(done).catch(function () {
+          // fallback
+          var ta = document.createElement('textarea');
+          ta.value = text; ta.style.position='fixed'; ta.style.opacity='0';
+          document.body.appendChild(ta); ta.select();
+          try { document.execCommand('copy'); } catch(_) {}
+          document.body.removeChild(ta); done();
+        });
+      } else {
+        var ta = document.createElement('textarea');
+        ta.value = text; ta.style.position='fixed'; ta.style.opacity='0';
+        document.body.appendChild(ta); ta.select();
+        try { document.execCommand('copy'); } catch(_) {}
+        document.body.removeChild(ta); done();
+      }
+    }
+  });
 
   function updateMeta() {
     var since = sinceEl.value;

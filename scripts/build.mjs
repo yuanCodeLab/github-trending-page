@@ -7,7 +7,7 @@
 //
 // Required env: GEMINI_API_KEY
 // Optional env:
-//   GEMINI_MODEL         (default: gemini-2.5-flash-lite)
+//   GEMINI_MODEL         (default: gemini-2.5-flash)
 //   GEMINI_BASE_URL      (default: https://generativelanguage.googleapis.com — set this to point at a proxy)
 //   GEMINI_API_VERSION   (default: v1beta)
 //
@@ -168,7 +168,7 @@ function getProviders() {
       apiKey: process.env.GEMINI_API_KEY,
       baseUrl: process.env.GEMINI_BASE_URL || undefined,
       apiVersion: process.env.GEMINI_API_VERSION || undefined,
-      model: process.env.GEMINI_MODEL || 'gemini-2.5-flash-lite',
+      model: process.env.GEMINI_MODEL || 'gemini-2.5-flash',
     });
   }
   if (process.env.GEMINI_FALLBACK_API_KEY) {
@@ -180,7 +180,7 @@ function getProviders() {
       model:
         process.env.GEMINI_FALLBACK_MODEL ||
         process.env.GEMINI_MODEL ||
-        'gemini-2.5-flash-lite',
+        'gemini-2.5-flash',
     });
   }
   return providers;
@@ -192,22 +192,42 @@ function describeProvider(p) {
   return `${p.label}: ${url}/${ver} model=${p.model}`;
 }
 
-const TRANSLATE_PROMPT_HEADER = [
-  '把下面 JSON 数组里每个英文 GitHub 仓库描述翻译成中文。要求:',
-  '- 流畅自然中文,避免明显的机翻味',
-  '- 技术术语保留英文(RAG, MCP, API, SDK, CLI, LLM, OAuth, GraphQL, Embedding 等)',
-  '- 项目名 / 产品名 / 人名保留英文(Suno, Discord, Claude, Codex, n8n, Karpathy 等)',
-  '- emoji 保留',
-  '- 长描述可以适当意译,不必逐字直译',
-  '- 描述末尾的省略号(…)保留',
+const ENRICHMENT_PROMPT_HEADER = [
+  '你是 GitHub 仓库的中文增强助手。我会给你 JSON 数组,每条仓库含 owner、repo、desc(原始英文描述)。',
+  '请为每条返回 JSON 对象,包含以下 4 个字段(顺序和数量必须与输入一致):',
   '',
-  '只返回纯 JSON 数组,顺序和长度与输入一致,每个元素是对应的中文翻译字符串。',
+  '1. desc_zh — 把 desc 翻译成中文。',
+  '   - 流畅自然中文,避免机翻味',
+  '   - 技术术语保留英文(RAG, MCP, API, SDK, CLI, LLM, OAuth, GraphQL, Embedding 等)',
+  '   - 项目名 / 产品名 / 人名保留英文(Suno, Discord, Claude, Codex, n8n, Karpathy 等)',
+  '   - emoji 保留;描述末尾的省略号(…)保留',
+  '',
+  '2. summary_zh — 1-2 句中文总结(50-150 字)。比 desc 多说一层:它是什么、怎么实现、跟同类相比的卖点。',
+  '',
+  '3. scenarios — 适用场景中文 bullet 数组,3-4 项。每项一句话,帮用户判断"是否为我所用"。',
+  '',
+  '4. agent_install_prompt — 给 AI coding agent(Claude Code / Codex / Cursor)的安装提示词字符串。',
+  '   ⚠️ **必须用中文**(命令本身保持原样)。',
+  '   预设场景:用户复制这段话给 agent,让 agent 帮忙克隆 + 安装依赖 + 配置 + 跑一个 smoke test。',
+  '   要包含:',
+  '   - 克隆到具体路径(如 ~/Code/<repo-name>)',
+  '   - 具体安装命令(pip / cargo / npm / docker compose 等,根据语言)',
+  '   - 关键配置项(配置文件路径、环境变量名)— 提示用户后续自己粘 API key,不要假设凭据',
+  '   - 最后跑一个最小冒烟测试,把输出贴给用户',
+  '   不要写"参照 README"这种泛泛的话,要具体。',
+  '',
+  '示例(供参考,不要照搬):',
+  '输入: { owner: "x", repo: "foo-tui", desc: "A terminal UI for the X model" }',
+  '理想 agent_install_prompt: "把 https://github.com/x/foo-tui 克隆到 ~/Code/foo-tui,跑 pip install -e . 安装,把 API key 写到 ~/.config/foo-tui/config.toml(我等下粘 key)。完事跑 echo \'hello\' | foo-tui 验证一下,把输出贴给我。"',
+  '',
+  '只返回纯 JSON 数组,长度和顺序与输入完全一致。不要外层 markdown 代码块。',
   '',
   '输入:',
 ].join('\n');
 
 // Single-provider call: configure SDK, retry on transient errors, parse + validate.
-async function callProvider(descs, provider) {
+// Input: array of { owner, repo, desc }. Output: array of { desc_zh, summary_zh, scenarios, agent_install_prompt }.
+async function callProvider(repos, provider) {
   const genAI = new GoogleGenerativeAI(provider.apiKey);
   const requestOptions = {};
   if (provider.baseUrl) requestOptions.baseUrl = provider.baseUrl;
@@ -223,7 +243,7 @@ async function callProvider(descs, provider) {
     requestOptions,
   );
 
-  const prompt = `${TRANSLATE_PROMPT_HEADER}\n${JSON.stringify(descs)}`;
+  const prompt = `${ENRICHMENT_PROMPT_HEADER}\n${JSON.stringify(repos)}`;
 
   // Retry on transient errors (503 high demand, 429 rate limit, network blips).
   let result;
@@ -248,24 +268,26 @@ async function callProvider(descs, provider) {
   } catch (e) {
     throw new Error(`Gemini returned non-JSON: ${cleaned.slice(0, 300)}`);
   }
-  if (!Array.isArray(arr) || arr.length !== descs.length) {
-    throw new Error(`Gemini returned ${arr?.length ?? '?'} items, expected ${descs.length}`);
+  if (!Array.isArray(arr) || arr.length !== repos.length) {
+    throw new Error(`Gemini returned ${arr?.length ?? '?'} items, expected ${repos.length}`);
   }
-  const map = {};
-  for (let i = 0; i < descs.length; i++) {
-    map[descs[i]] = String(arr[i] || '');
-  }
-  return map;
+  // Normalise each item to the 4 expected fields.
+  return arr.map((x, i) => ({
+    desc_zh: typeof x?.desc_zh === 'string' ? x.desc_zh : '',
+    summary_zh: typeof x?.summary_zh === 'string' ? x.summary_zh : '',
+    scenarios: Array.isArray(x?.scenarios) ? x.scenarios.map((s) => String(s || '')).filter(Boolean) : [],
+    agent_install_prompt: typeof x?.agent_install_prompt === 'string' ? x.agent_install_prompt : '',
+  }));
 }
 
 // Try each provider in order. If a provider fails after its own retries, fall back to the next.
-async function translateBatch(descs, providers) {
-  if (!descs.length) return {};
+async function translateBatch(repos, providers) {
+  if (!repos.length) return [];
   let lastErr;
   for (let i = 0; i < providers.length; i++) {
     const p = providers[i];
     try {
-      return await callProvider(descs, p);
+      return await callProvider(repos, p);
     } catch (e) {
       lastErr = e;
       const summary = `${e?.status || ''} ${e?.message || e}`.slice(0, 200).trim();
@@ -278,15 +300,16 @@ async function translateBatch(descs, providers) {
   throw lastErr; // unreachable but keeps types tidy
 }
 
-// Translate in chunks to keep prompts reasonable.
-async function translateAll(descs, providers) {
-  const out = {};
-  const CHUNK = 25;
-  for (let i = 0; i < descs.length; i += CHUNK) {
-    const slice = descs.slice(i, i + CHUNK);
-    const m = await translateBatch(slice, providers);
-    Object.assign(out, m);
-    console.log(`  translated chunk ${i / CHUNK + 1}/${Math.ceil(descs.length / CHUNK)} (${slice.length} items)`);
+// Translate in chunks to keep prompts reasonable. Output is per-repo enrichment array.
+async function translateAll(repos, providers) {
+  const out = [];
+  // Smaller chunks because each item now produces ~400 output tokens (4 fields) vs ~50 (just desc_zh).
+  const CHUNK = 10;
+  for (let i = 0; i < repos.length; i += CHUNK) {
+    const slice = repos.slice(i, i + CHUNK);
+    const enrichments = await translateBatch(slice, providers);
+    out.push(...enrichments);
+    console.log(`  enriched chunk ${Math.floor(i / CHUNK) + 1}/${Math.ceil(repos.length / CHUNK)} (${slice.length} items)`);
   }
   return out;
 }
@@ -316,6 +339,29 @@ async function loadExistingDatasets() {
     }
   }
   return datasets;
+}
+
+// Build a flat enrichment cache from ALL existing datasets (history + today's previous run).
+// Key: `${owner}/${repo}|${desc}` so a repo with changed description gets re-translated.
+// Only repos with all 4 enrichment fields are cached (legacy daily snapshots only have desc_zh
+// and will be re-translated when they next appear in fresh datasets).
+function buildEnrichmentCache(existingDatasets) {
+  const cache = {};
+  for (const ds of Object.values(existingDatasets)) {
+    for (const r of ds.repos || []) {
+      if (!r.desc) continue;
+      const hasAll = r.desc_zh && r.summary_zh && Array.isArray(r.scenarios) && r.scenarios.length && r.agent_install_prompt;
+      if (!hasAll) continue;
+      const key = `${r.owner}/${r.repo}|${r.desc}`;
+      cache[key] = {
+        desc_zh: r.desc_zh,
+        summary_zh: r.summary_zh,
+        scenarios: r.scenarios,
+        agent_install_prompt: r.agent_install_prompt,
+      };
+    }
+  }
+  return cache;
 }
 
 function rollHistory(existing, todayStr) {
@@ -355,10 +401,12 @@ async function main() {
     for (const p of providers) console.log(`    ${describeProvider(p)}`);
   }
 
-  console.log('Loading existing artifact for history...');
+  console.log('Loading existing artifact for history + enrichment cache...');
   const existing = await loadExistingDatasets();
   const dailyRetained = rollHistory(existing, todayStr);
+  const enrichmentCache = buildEnrichmentCache(existing);
   console.log(`  retained ${Object.keys(dailyRetained).length} historical daily snapshot(s)`);
+  console.log(`  enrichment cache: ${Object.keys(enrichmentCache).length} repo(s) with full AI fields`);
 
   console.log('Fetching trending pages...');
   const [dailyHTML, weeklyHTML, monthlyHTML] = await Promise.all([
@@ -401,32 +449,66 @@ async function main() {
     );
   }
 
-  // Collect descriptions to translate from FRESH datasets only.
-  // Retained historical snapshots already have desc_zh from previous runs.
+  // Collect repos that need enrichment from FRESH datasets only.
+  // Cache lookup: any repo with the same `${owner}/${repo}|${desc}` key + all 4 fields gets reused.
   const fresh = {
     [`daily-${todayStr}`]: todayDaily,
     weekly,
     monthly,
     yearly,
   };
-  const todoSet = new Set();
+  const seenKeys = new Set();
+  const todoRepos = [];
   for (const ds of Object.values(fresh)) {
     for (const r of ds.repos) {
-      if (r.desc) todoSet.add(r.desc);
+      if (!r.desc) continue;
+      const key = `${r.owner}/${r.repo}|${r.desc}`;
+      if (seenKeys.has(key)) continue;
+      seenKeys.add(key);
+      if (!enrichmentCache[key]) {
+        todoRepos.push({ owner: r.owner, repo: r.repo, desc: r.desc });
+      }
     }
   }
-  const todoArr = [...todoSet];
-  let transMap;
+
+  const cacheHits = seenKeys.size - todoRepos.length;
+  console.log(`Enrichment plan: ${cacheHits} cache hit(s), ${todoRepos.length} new repo(s) to translate`);
+
   if (skipTranslation) {
-    console.log(`SKIP_TRANSLATION=1 — leaving desc_zh empty for ${todoArr.length} descs`);
-    transMap = {};
-  } else {
-    console.log(`Translating ${todoArr.length} unique descriptions via Gemini...`);
-    transMap = await translateAll(todoArr, providers);
+    console.log(`SKIP_TRANSLATION=1 — leaving AI fields empty for ${todoRepos.length} new repos`);
+  } else if (todoRepos.length > 0) {
+    console.log(`Calling Gemini for ${todoRepos.length} new repos...`);
+    const newEnrichments = await translateAll(todoRepos, providers);
+    for (let i = 0; i < todoRepos.length; i++) {
+      const t = todoRepos[i];
+      const key = `${t.owner}/${t.repo}|${t.desc}`;
+      enrichmentCache[key] = newEnrichments[i];
+    }
   }
+
+  // Apply enrichment to all fresh repos
   for (const ds of Object.values(fresh)) {
     for (const r of ds.repos) {
-      r.desc_zh = r.desc ? transMap[r.desc] || '' : '';
+      if (!r.desc) {
+        r.desc_zh = '';
+        r.summary_zh = '';
+        r.scenarios = [];
+        r.agent_install_prompt = '';
+        continue;
+      }
+      const key = `${r.owner}/${r.repo}|${r.desc}`;
+      const e = enrichmentCache[key];
+      if (e) {
+        r.desc_zh = e.desc_zh || '';
+        r.summary_zh = e.summary_zh || '';
+        r.scenarios = e.scenarios || [];
+        r.agent_install_prompt = e.agent_install_prompt || '';
+      } else {
+        r.desc_zh = '';
+        r.summary_zh = '';
+        r.scenarios = [];
+        r.agent_install_prompt = '';
+      }
     }
   }
 
