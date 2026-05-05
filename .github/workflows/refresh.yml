@@ -9,6 +9,7 @@ on:
 
 permissions:
   contents: write  # 允许 commit 回 main
+  issues: write    # 失败时创建/评论 issue 触发邮件通知
 
 concurrency:
   group: daily-refresh
@@ -54,3 +55,52 @@ jobs:
             git commit -m "refresh: ${DATE} trending data"
             git push
           fi
+
+      # 失败通知:GitHub 默认会给 cron 失败发邮件,但有时被忽略。
+      # 这里再加一层:同一个开口 issue 上累计评论。每条新评论也会触发邮件,
+      # 而且在 repo Issues 里能直接看到失败历史。
+      - name: Notify on failure
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const today = new Date().toISOString().slice(0, 10);
+            const title = '🔴 Daily refresh failures';
+            const label = 'cron-failure';
+
+            // 找现有的 open issue
+            const { data: existing } = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              labels: label,
+              per_page: 1,
+            });
+
+            const body = [
+              `**${today}** — Daily refresh workflow failed.`,
+              ``,
+              `[View run logs](${runUrl})`,
+              ``,
+              `Triggered by: \`${context.eventName}\`  Run: \`${context.runId}\``,
+            ].join('\n');
+
+            if (existing.length > 0) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: existing[0].number,
+                body,
+              });
+              core.notice(`Appended failure comment to #${existing[0].number}`);
+            } else {
+              const { data: created } = await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title,
+                body,
+                labels: [label],
+              });
+              core.notice(`Opened failure issue #${created.number}`);
+            }
