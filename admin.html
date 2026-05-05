@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="zh-Hans">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Admin · GitHub Trending</title>
+<meta name="description" content="GitHub Trending 站点管理面板" />
+<meta name="robots" content="noindex,nofollow" />
+<style>
+  :root { color-scheme: light; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: #ffffff; color: #1f2328; font: 14px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif; }
+  .wrap { max-width: 720px; margin: 0 auto; padding: 48px 22px 60px; }
+  header.top { display: flex; align-items: baseline; gap: 12px; margin-bottom: 6px; }
+  header.top h1 { font-size: 22px; font-weight: 600; margin: 0; }
+  header.top .badge { background: linear-gradient(90deg, #6e40c9, #1f2328); color: #fff; font-size: 9px; font-weight: 700; padding: 2px 6px; border-radius: 3px; letter-spacing: 0.04em; }
+  header.top .domain { color: #59636e; font-size: 13px; font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace; margin-left: auto; }
+  .subhead { color: #59636e; font-size: 13px; margin: 0 0 28px 0; }
+
+  .stats { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 28px; }
+  .stat { background: #f6f8fa; border: 1px solid #d0d7de; border-radius: 10px; padding: 18px 18px 16px; }
+  .stat .label { font-size: 10px; color: #59636e; text-transform: uppercase; letter-spacing: 0.06em; font-weight: 600; margin-bottom: 6px; }
+  .stat .num { font-size: 30px; font-weight: 700; color: #1f2328; line-height: 1.1; font-variant-numeric: tabular-nums; }
+  .stat .hint { font-size: 11px; color: #8b949e; margin-top: 4px; }
+
+  .section-title { font-size: 11px; color: #59636e; text-transform: uppercase; letter-spacing: 0.08em; font-weight: 600; margin: 28px 0 12px 0; }
+
+  .links { display: flex; flex-direction: column; gap: 8px; }
+  .link { display: flex; align-items: center; gap: 12px; padding: 12px 16px; background: #ffffff; border: 1px solid #d0d7de; border-radius: 8px; text-decoration: none; color: #1f2328; transition: all 0.15s; }
+  .link:hover { background: #f6f8fa; border-color: #1f2328; }
+  .link .icon { font-size: 18px; flex-shrink: 0; width: 24px; text-align: center; }
+  .link .text { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; }
+  .link .title { font-size: 14px; font-weight: 500; }
+  .link .sub { font-size: 11px; color: #59636e; font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .link .arrow { color: #8b949e; font-size: 12px; }
+
+  .footer { margin-top: 40px; color: #8b949e; font-size: 11px; line-height: 1.6; text-align: center; }
+  .footer code { background: #f6f8fa; padding: 1px 5px; border-radius: 3px; font-size: 11px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="top">
+    <span class="badge">ADMIN</span>
+    <h1>GitHub Trending</h1>
+    <span class="domain">github-trending.yuanqi.blog</span>
+  </header>
+  <p class="subhead">仅站长可见。数据来自不蒜子(实时计数)和 Vercel Analytics(详细分析)。</p>
+
+  <div class="stats">
+    <div class="stat">
+      <div class="label">累计 PV(浏览量)</div>
+      <div class="num"><span id="busuanzi_value_site_pv">…</span></div>
+      <div class="hint">每次页面访问 +1</div>
+    </div>
+    <div class="stat">
+      <div class="label">累计 UV(访客)</div>
+      <div class="num"><span id="busuanzi_value_site_uv">…</span></div>
+      <div class="hint">同一访客 1 次/天</div>
+    </div>
+  </div>
+
+  <div class="section-title">详细数据 / 操作</div>
+  <div class="links">
+
+    <a class="link" href="https://vercel.com/yuanqis-projects-7820054f/github-trending-page/analytics" target="_blank" rel="noopener">
+      <span class="icon">📊</span>
+      <span class="text">
+        <span class="title">Vercel Analytics 详细面板</span>
+        <span class="sub">访问来源、设备、国家、Top pages…</span>
+      </span>
+      <span class="arrow">↗</span>
+    </a>
+
+    <a class="link" href="https://github.com/yuanCodeLab/github-trending-page/actions/workflows/refresh.yml" target="_blank" rel="noopener">
+      <span class="icon">⚙️</span>
+      <span class="text">
+        <span class="title">Daily refresh workflow</span>
+        <span class="sub">最近一次 cron 是否成功 / 手动重跑</span>
+      </span>
+      <span class="arrow">↗</span>
+    </a>
+
+    <a class="link" href="https://github.com/yuanCodeLab/github-trending-page" target="_blank" rel="noopener">
+      <span class="icon">📦</span>
+      <span class="text">
+        <span class="title">GitHub repo</span>
+        <span class="sub">yuanCodeLab/github-trending-page</span>
+      </span>
+      <span class="arrow">↗</span>
+    </a>
+
+    <a class="link" href="https://github.com/yuanCodeLab/github-trending-page/issues?q=is%3Aissue+label%3Acron-failure" target="_blank" rel="noopener">
+      <span class="icon">🚨</span>
+      <span class="text">
+        <span class="title">Cron failure issues</span>
+        <span class="sub">workflow 失败时自动开 issue 的归档</span>
+      </span>
+      <span class="arrow">↗</span>
+    </a>
+
+    <a class="link" href="/" target="_blank" rel="noopener">
+      <span class="icon">🌐</span>
+      <span class="text">
+        <span class="title">Live site</span>
+        <span class="sub">github-trending.yuanqi.blog</span>
+      </span>
+      <span class="arrow">↗</span>
+    </a>
+
+  </div>
+
+  <div class="footer">
+    数据延迟说明:不蒜子 ~1 分钟内更新;Vercel Analytics 通常 30 秒。<br>
+    页面本身没有访问门槛 — URL 在 <code>robots.txt</code> noindex,但不算访问控制。
+  </div>
+
+</div>
+
+<!-- 不蒜子 -->
+<script async src="//busuanzi.ibruce.info/busuanzi/2.3/busuanzi.pure.mini.js"></script>
+<!-- Vercel Analytics(管理页也算入数据) -->
+<script defer src="/_vercel/insights/script.js"></script>
+</body>
+</html>
