@@ -95,23 +95,52 @@ vercel.json                         ← static-only deploy config
   `<script id="trending-data-XXX">` block; update `template.html`'s
   `buildPeriodOptions()` label map.
 
-## Switching translation provider
+## Translation providers
 
-Default: official Google Gemini API (`https://generativelanguage.googleapis.com/v1beta`),
-key is `AIza...` from https://aistudio.google.com/apikey.
+The build supports a primary + optional fallback. If primary fails after 5 retries
+with exponential backoff, fallback is used automatically. Each provider has its own
+retry budget, so worst case is 10 attempts before the build fails.
 
-To switch to a self-hosted / third-party proxy that exposes the Gemini REST API:
+**Primary** (default): official Google Gemini API
+(`https://generativelanguage.googleapis.com/v1beta`), key from https://aistudio.google.com/apikey.
 
-1. Settings → Secrets and variables → Actions → **Variables** tab → add:
-   - `GEMINI_BASE_URL` = `http://170.106.186.58` (example: existing self-hosted Gemini relay)
-   - `GEMINI_API_VERSION` = `v1beta`
-2. Update the `GEMINI_API_KEY` **secret** to the proxy's key (e.g. `sk-...`).
-3. Trigger the workflow manually (Actions → Daily refresh → Run workflow) to verify.
+**Fallback** (configured): self-hosted/third-party Gemini relay at
+`http://170.106.186.58/v1beta` (auth uses `sk-...` keys).
 
-To switch back: delete the two variables and restore the official `AIza...` key in the secret.
+### Env reference
 
-The build prints the active endpoint at startup, e.g.
-`Refreshing for 2026-05-05 using model gemini-2.5-flash-lite via https://generativelanguage.googleapis.com/v1beta (official)`.
+| Provider | Var/Secret | Where | Purpose |
+|---|---|---|---|
+| Primary | `GEMINI_API_KEY` | secret | Required |
+| Primary | `GEMINI_BASE_URL` | var | Override endpoint (defaults to Google) |
+| Primary | `GEMINI_API_VERSION` | var | Override API version (defaults to `v1beta`) |
+| Primary | `GEMINI_MODEL` | var | Override model (default `gemini-2.5-flash-lite`) |
+| Fallback | `GEMINI_FALLBACK_API_KEY` | secret | If set, fallback activates |
+| Fallback | `GEMINI_FALLBACK_BASE_URL` | var | Endpoint for fallback |
+| Fallback | `GEMINI_FALLBACK_API_VERSION` | var | API version for fallback |
+| Fallback | `GEMINI_FALLBACK_MODEL` | var | Model for fallback (defaults to primary's model) |
+
+Build start-up log lists the active providers in order:
+
+```
+Refreshing for 2026-05-05
+  translation providers (2):
+    primary: https://generativelanguage.googleapis.com/v1beta model=gemini-2.5-flash-lite
+    fallback: http://170.106.186.58/v1beta model=gemini-2.5-flash-lite
+```
+
+When a provider fails:
+
+```
+    [primary] 503 [GoogleGenerativeAI Error]: ...high demand...
+    → falling back to fallback
+    translated chunk 2/3 (25 items)
+```
+
+### Swapping primary ↔ fallback
+
+If you want to use the proxy as primary instead, swap the secret/var values:
+move proxy values from `GEMINI_FALLBACK_*` to `GEMINI_*` and vice-versa.
 
 ## Cost
 

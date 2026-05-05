@@ -10,6 +10,12 @@
 //   GEMINI_MODEL         (default: gemini-2.5-flash-lite)
 //   GEMINI_BASE_URL      (default: https://generativelanguage.googleapis.com — set this to point at a proxy)
 //   GEMINI_API_VERSION   (default: v1beta)
+//
+// Optional fallback provider (used automatically if primary fails after retries):
+//   GEMINI_FALLBACK_API_KEY      — fallback only activates if this is set
+//   GEMINI_FALLBACK_BASE_URL     (e.g. http://170.106.186.58)
+//   GEMINI_FALLBACK_API_VERSION  (default: v1beta)
+//   GEMINI_FALLBACK_MODEL        (default: same as GEMINI_MODEL)
 
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { promises as fs } from 'node:fs';
@@ -152,57 +158,89 @@ function parseSearchPayload(html) {
 
 // ---------- gemini translation ----------
 
-async function translateBatch(descs, apiKey, modelName) {
-  if (!descs.length) return {};
-  const genAI = new GoogleGenerativeAI(apiKey);
-  // Allow pointing at a proxy / alternate endpoint via env. Empty / unset → SDK defaults
-  // (https://generativelanguage.googleapis.com + v1beta).
+// Build the ordered list of providers from env. Primary first, then fallback if configured.
+// Each entry has a label for logs and the SDK config it needs.
+function getProviders() {
+  const providers = [];
+  if (process.env.GEMINI_API_KEY) {
+    providers.push({
+      label: 'primary',
+      apiKey: process.env.GEMINI_API_KEY,
+      baseUrl: process.env.GEMINI_BASE_URL || undefined,
+      apiVersion: process.env.GEMINI_API_VERSION || undefined,
+      model: process.env.GEMINI_MODEL || 'gemini-2.5-flash-lite',
+    });
+  }
+  if (process.env.GEMINI_FALLBACK_API_KEY) {
+    providers.push({
+      label: 'fallback',
+      apiKey: process.env.GEMINI_FALLBACK_API_KEY,
+      baseUrl: process.env.GEMINI_FALLBACK_BASE_URL || undefined,
+      apiVersion: process.env.GEMINI_FALLBACK_API_VERSION || undefined,
+      model:
+        process.env.GEMINI_FALLBACK_MODEL ||
+        process.env.GEMINI_MODEL ||
+        'gemini-2.5-flash-lite',
+    });
+  }
+  return providers;
+}
+
+function describeProvider(p) {
+  const url = p.baseUrl || 'https://generativelanguage.googleapis.com';
+  const ver = p.apiVersion || 'v1beta';
+  return `${p.label}: ${url}/${ver} model=${p.model}`;
+}
+
+const TRANSLATE_PROMPT_HEADER = [
+  '把下面 JSON 数组里每个英文 GitHub 仓库描述翻译成中文。要求:',
+  '- 流畅自然中文,避免明显的机翻味',
+  '- 技术术语保留英文(RAG, MCP, API, SDK, CLI, LLM, OAuth, GraphQL, Embedding 等)',
+  '- 项目名 / 产品名 / 人名保留英文(Suno, Discord, Claude, Codex, n8n, Karpathy 等)',
+  '- emoji 保留',
+  '- 长描述可以适当意译,不必逐字直译',
+  '- 描述末尾的省略号(…)保留',
+  '',
+  '只返回纯 JSON 数组,顺序和长度与输入一致,每个元素是对应的中文翻译字符串。',
+  '',
+  '输入:',
+].join('\n');
+
+// Single-provider call: configure SDK, retry on transient errors, parse + validate.
+async function callProvider(descs, provider) {
+  const genAI = new GoogleGenerativeAI(provider.apiKey);
   const requestOptions = {};
-  if (process.env.GEMINI_BASE_URL) requestOptions.baseUrl = process.env.GEMINI_BASE_URL;
-  if (process.env.GEMINI_API_VERSION) requestOptions.apiVersion = process.env.GEMINI_API_VERSION;
-  const model = genAI.getGenerativeModel({
-    model: modelName,
-    generationConfig: {
-      responseMimeType: 'application/json',
-      temperature: 0.4,
+  if (provider.baseUrl) requestOptions.baseUrl = provider.baseUrl;
+  if (provider.apiVersion) requestOptions.apiVersion = provider.apiVersion;
+  const model = genAI.getGenerativeModel(
+    {
+      model: provider.model,
+      generationConfig: {
+        responseMimeType: 'application/json',
+        temperature: 0.4,
+      },
     },
-  }, requestOptions);
+    requestOptions,
+  );
 
-  const prompt = [
-    '把下面 JSON 数组里每个英文 GitHub 仓库描述翻译成中文。要求:',
-    '- 流畅自然中文,避免明显的机翻味',
-    '- 技术术语保留英文(RAG, MCP, API, SDK, CLI, LLM, OAuth, GraphQL, Embedding 等)',
-    '- 项目名 / 产品名 / 人名保留英文(Suno, Discord, Claude, Codex, n8n, Karpathy 等)',
-    '- emoji 保留',
-    '- 长描述可以适当意译,不必逐字直译',
-    '- 描述末尾的省略号(…)保留',
-    '',
-    '只返回纯 JSON 数组,顺序和长度与输入一致,每个元素是对应的中文翻译字符串。',
-    '',
-    '输入:',
-    JSON.stringify(descs),
-  ].join('\n');
+  const prompt = `${TRANSLATE_PROMPT_HEADER}\n${JSON.stringify(descs)}`;
 
-  // Retry on transient Google-side errors (503 high demand, 429 rate limit, network blips).
+  // Retry on transient errors (503 high demand, 429 rate limit, network blips).
   let result;
-  let lastErr;
   for (let attempt = 1; attempt <= 5; attempt++) {
     try {
       result = await model.generateContent(prompt);
       break;
     } catch (e) {
-      lastErr = e;
       const status = e?.status || 0;
       const transient = status === 429 || (status >= 500 && status < 600) || !status;
       if (!transient || attempt === 5) throw e;
       const waitSec = Math.min(60, 5 * 2 ** (attempt - 1)); // 5, 10, 20, 40, 60
-      console.log(`  Gemini ${status || 'network'} on attempt ${attempt}, retrying in ${waitSec}s`);
+      console.log(`    [${provider.label}] ${status || 'network'} on attempt ${attempt}, retrying in ${waitSec}s`);
       await new Promise((res) => setTimeout(res, waitSec * 1000));
     }
   }
   const text = result.response.text().trim();
-
-  // Strip markdown fence if Gemini wrapped it despite responseMimeType
   const cleaned = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '');
   let arr;
   try {
@@ -220,13 +258,33 @@ async function translateBatch(descs, apiKey, modelName) {
   return map;
 }
 
+// Try each provider in order. If a provider fails after its own retries, fall back to the next.
+async function translateBatch(descs, providers) {
+  if (!descs.length) return {};
+  let lastErr;
+  for (let i = 0; i < providers.length; i++) {
+    const p = providers[i];
+    try {
+      return await callProvider(descs, p);
+    } catch (e) {
+      lastErr = e;
+      const summary = `${e?.status || ''} ${e?.message || e}`.slice(0, 200).trim();
+      const isLast = i === providers.length - 1;
+      console.log(`    [${p.label}] failed: ${summary}`);
+      if (isLast) throw e;
+      console.log(`    → falling back to ${providers[i + 1].label}`);
+    }
+  }
+  throw lastErr; // unreachable but keeps types tidy
+}
+
 // Translate in chunks to keep prompts reasonable.
-async function translateAll(descs, apiKey, modelName) {
+async function translateAll(descs, providers) {
   const out = {};
   const CHUNK = 25;
   for (let i = 0; i < descs.length; i += CHUNK) {
     const slice = descs.slice(i, i + CHUNK);
-    const m = await translateBatch(slice, apiKey, modelName);
+    const m = await translateBatch(slice, providers);
     Object.assign(out, m);
     console.log(`  translated chunk ${i / CHUNK + 1}/${Math.ceil(descs.length / CHUNK)} (${slice.length} items)`);
   }
@@ -279,21 +337,23 @@ function rollHistory(existing, todayStr) {
 
 async function main() {
   const skipTranslation = process.env.SKIP_TRANSLATION === '1';
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey && !skipTranslation) {
+  const providers = getProviders();
+  if (!providers.length && !skipTranslation) {
     console.error('GEMINI_API_KEY env var is required (or set SKIP_TRANSLATION=1 for a dry run)');
     process.exit(2);
   }
-  const modelName = process.env.GEMINI_MODEL || 'gemini-2.5-flash-lite';
 
   const today = new Date();
   const todayStr = today.toISOString().slice(0, 10);
   const year = today.getUTCFullYear();
 
-  const endpointInfo = process.env.GEMINI_BASE_URL
-    ? `${process.env.GEMINI_BASE_URL}/${process.env.GEMINI_API_VERSION || 'v1beta'} (proxy)`
-    : 'https://generativelanguage.googleapis.com/v1beta (official)';
-  console.log(`Refreshing for ${todayStr} using model ${modelName} via ${endpointInfo}`);
+  console.log(`Refreshing for ${todayStr}`);
+  if (skipTranslation) {
+    console.log('  translation: SKIPPED');
+  } else {
+    console.log(`  translation providers (${providers.length}):`);
+    for (const p of providers) console.log(`    ${describeProvider(p)}`);
+  }
 
   console.log('Loading existing artifact for history...');
   const existing = await loadExistingDatasets();
@@ -362,7 +422,7 @@ async function main() {
     transMap = {};
   } else {
     console.log(`Translating ${todoArr.length} unique descriptions via Gemini...`);
-    transMap = await translateAll(todoArr, apiKey, modelName);
+    transMap = await translateAll(todoArr, providers);
   }
   for (const ds of Object.values(fresh)) {
     for (const r of ds.repos) {

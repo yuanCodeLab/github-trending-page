@@ -32,15 +32,21 @@ jobs:
 
       - name: Build index.html
         env:
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          # ----- Primary provider -----
           # 默认走官方 https://generativelanguage.googleapis.com/v1beta
-          # 切到自建/第三方代理:在 repo Settings → Variables 里设
-          #   GEMINI_BASE_URL=http://170.106.186.58
-          #   GEMINI_API_VERSION=v1beta
-          # 同时把 GEMINI_API_KEY secret 改成代理的 key (sk-...)
+          # 把 primary 切到代理:在 vars 里设 GEMINI_BASE_URL=http://... + GEMINI_API_VERSION=v1beta
+          # 并把 GEMINI_API_KEY secret 改成代理的 key
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GEMINI_MODEL: ${{ vars.GEMINI_MODEL }}
           GEMINI_BASE_URL: ${{ vars.GEMINI_BASE_URL }}
           GEMINI_API_VERSION: ${{ vars.GEMINI_API_VERSION }}
+          # ----- Fallback provider (used automatically if primary fails) -----
+          # 只要 GEMINI_FALLBACK_API_KEY secret 存在,build 就会在 primary 5 次重试都败之后切到 fallback。
+          # 通常 fallback 配成第三方代理,与 primary 互为备份。
+          GEMINI_FALLBACK_API_KEY: ${{ secrets.GEMINI_FALLBACK_API_KEY }}
+          GEMINI_FALLBACK_BASE_URL: ${{ vars.GEMINI_FALLBACK_BASE_URL }}
+          GEMINI_FALLBACK_API_VERSION: ${{ vars.GEMINI_FALLBACK_API_VERSION }}
+          GEMINI_FALLBACK_MODEL: ${{ vars.GEMINI_FALLBACK_MODEL }}
         run: node scripts/build.mjs
 
       - name: Commit if changed
