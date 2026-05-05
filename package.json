@@ -1,0 +1,16 @@
+{
+  "name": "github-trending-page",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Daily-refreshed GitHub Trending page deployed at github-trending.yuanqi.blog",
+  "scripts": {
+    "build": "node scripts/build.mjs"
+  },
+  "dependencies": {
+    "@google/generative-ai": "^0.21.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

@@ -1,0 +1,261 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>GitHub Trending</title>
+<style>
+  :root { color-scheme: light; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: #ffffff; color: #1f2328; font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; }
+  .wrap { max-width: 920px; margin: 0 auto; padding: 20px 18px 60px; }
+  header.top { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; flex-wrap: wrap; }
+  header.top h1 { font-size: 20px; margin: 0; font-weight: 600; }
+  header.top .meta { color: #59636e; font-size: 12px; margin-left: auto; }
+  .controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 12px 0 16px; border-bottom: 1px solid #d1d9e0; margin-bottom: 16px; }
+  .controls label { font-size: 12px; color: #59636e; margin-right: 4px; }
+  .controls select, .controls input { font: inherit; padding: 6px 10px; border: 1px solid #d1d9e0; border-radius: 6px; background: #f6f8fa; color: #1f2328; }
+  .controls input { min-width: 160px; }
+  .repo { padding: 16px 0; border-bottom: 1px solid #eaeef2; }
+  .repo:last-child { border-bottom: 0; }
+  .repo .row1 { display: flex; align-items: baseline; gap: 10px; }
+  .repo .rank { color: #59636e; font-size: 12px; min-width: 26px; }
+  .repo .name { font-size: 16px; font-weight: 600; }
+  .repo .name a { color: #0969da; text-decoration: none; }
+  .repo .name a:hover { text-decoration: underline; }
+  .repo .name .owner { color: #0969da; font-weight: 400; }
+  .repo p.desc { color: #59636e; margin: 6px 0 8px 36px; font-size: 13px; }
+  .repo .stats { display: flex; flex-wrap: wrap; gap: 14px; align-items: center; margin-left: 36px; color: #59636e; font-size: 12px; }
+  .repo .stats .lang { display: inline-flex; align-items: center; gap: 5px; }
+  .repo .stats .dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; border: 1px solid rgba(0,0,0,0.08); }
+  .repo .stats .today { color: #1f2328; font-weight: 500; }
+  .empty { padding: 28px 0; color: #59636e; text-align: center; }
+  .footer-note { margin-top: 24px; color: #8b949e; font-size: 11px; text-align: center; line-height: 1.6; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <h1>GitHub Trending</h1>
+    <span class="meta" id="meta"></span>
+  </header>
+
+  <div class="controls">
+    <label for="since">Period</label>
+    <select id="since"></select>
+    <label for="lang">Language</label>
+    <select id="lang"></select>
+    <label for="search">Search</label>
+    <input id="search" type="search" placeholder="filter by name or description" />
+  </div>
+
+  <div id="list"></div>
+
+  <div class="footer-note">
+    数据抓取自 github.com/trending(本年数据来自 github.com/search)。每天中午 12 点(北京时间)自动刷新。
+  </div>
+</div>
+
+<!-- Datasets are emitted by build_trending_artifact.py:
+     <script id="trending-data-daily-YYYY-MM-DD" type="application/json">{...}</script>
+     <script id="trending-data-weekly|monthly|yearly" type="application/json">{...}</script>
+-->
+__DATASETS__
+
+<script>
+(function () {
+  var STORAGE_KEY = 'gh-trending-prefs-v2';
+  var FETCHED_AT = '__FETCHED_AT__';
+
+  var sinceEl = document.getElementById('since');
+  var langEl = document.getElementById('lang');
+  var searchEl = document.getElementById('search');
+  var listEl = document.getElementById('list');
+  var metaEl = document.getElementById('meta');
+
+  // Read every <script type="application/json" id="trending-data-*"> block.
+  // Returns map keyed by the suffix after "trending-data-".
+  function readAllDatasets() {
+    var map = {};
+    var nodes = document.querySelectorAll('script[type="application/json"][id^="trending-data-"]');
+    for (var i = 0; i < nodes.length; i++) {
+      var id = nodes[i].id.slice('trending-data-'.length);
+      try {
+        var d = JSON.parse(nodes[i].textContent || '{}');
+        map[id] = d || { repos: [] };
+      } catch (e) {
+        map[id] = { repos: [] };
+      }
+    }
+    return map;
+  }
+
+  var DATASETS = readAllDatasets();
+
+  // Compute Period dropdown order:
+  //   daily snapshots, sorted by date DESC (most recent first → 今日, 昨日, 前天, ...)
+  //   then weekly, monthly, yearly (whichever exist)
+  function buildPeriodOptions() {
+    var keys = Object.keys(DATASETS);
+    var dailyKeys = keys.filter(function (k) { return /^daily-\d{4}-\d{2}-\d{2}$/.test(k); }).sort().reverse();
+    var FIXED = ['weekly', 'monthly', 'yearly'];
+    var fixedKeys = FIXED.filter(function (k) { return DATASETS[k]; });
+
+    var ordered = dailyKeys.concat(fixedKeys);
+    if (!ordered.length) return;
+
+    var labels = {};
+    dailyKeys.forEach(function (k, i) {
+      if (i === 0) labels[k] = '今日';
+      else if (i === 1) labels[k] = '昨日';
+      else if (i === 2) labels[k] = '前天';
+      else labels[k] = i + ' 天前';
+    });
+    labels.weekly = '本周';
+    labels.monthly = '本月';
+    labels.yearly = '本年';
+
+    sinceEl.innerHTML = ordered.map(function (k) {
+      return '<option value="' + escapeHTML(k) + '">' + escapeHTML(labels[k] || k) + '</option>';
+    }).join('');
+  }
+
+  var LANG_COLORS = {
+    'TypeScript':'#3178c6','JavaScript':'#f1e05a','Python':'#3572A5','Go':'#00ADD8',
+    'Rust':'#dea584','Java':'#b07219','C++':'#f34b7d','C':'#555555','C#':'#178600',
+    'Swift':'#F05138','Kotlin':'#A97BFF','Ruby':'#701516','PHP':'#4F5D95',
+    'Shell':'#89e051','HTML':'#e34c26','CSS':'#663399','Vue':'#41b883',
+    'Scala':'#c22d40','Dart':'#00B4AB','Elixir':'#6e4a7e','Haskell':'#5e5086',
+    'Lua':'#000080','Perl':'#0298c3','R':'#198CE7','Solidity':'#AA6746',
+    'Jupyter Notebook':'#DA5B0B','MDX':'#fcb32c','Zig':'#ec915c','Nim':'#37775b',
+    'Clojure':'#db5855','Erlang':'#B83998','OCaml':'#3be133','Fortran':'#4d41b1',
+    'Julia':'#a270ba','Objective-C':'#438eff','Astro':'#ff5a03','Svelte':'#ff3e00',
+    'Batchfile':'#C1F12E'
+  };
+
+  function escapeHTML(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+      return ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' })[c];
+    });
+  }
+
+  function fmtNum(n) {
+    if (n >= 1000) return (n / 1000).toFixed(n >= 10000 ? 0 : 1).replace(/\.0$/, '') + 'k';
+    return String(n);
+  }
+
+  function getRepos() {
+    var since = sinceEl.value;
+    var ds = DATASETS[since] || { repos: [] };
+    return ds.repos || [];
+  }
+
+  function rebuildLanguageOptions() {
+    var langs = {};
+    Object.keys(DATASETS).forEach(function (k) {
+      (DATASETS[k].repos || []).forEach(function (r) { if (r.lang) langs[r.lang] = true; });
+    });
+    var sorted = Object.keys(langs).sort(function (a, b) { return a.localeCompare(b); });
+    var prev = langEl.value;
+    langEl.innerHTML = '<option value="">All languages</option>' + sorted.map(function (l) {
+      return '<option value="' + escapeHTML(l) + '">' + escapeHTML(l) + '</option>';
+    }).join('');
+    if (sorted.indexOf(prev) !== -1) langEl.value = prev;
+  }
+
+  function applyFilters(repos) {
+    var lang = langEl.value;
+    var q = (searchEl.value || '').trim().toLowerCase();
+    return repos.filter(function (r) {
+      if (lang && r.lang !== lang) return false;
+      if (q) {
+        var hay = (r.owner + '/' + r.repo + ' ' + (r.desc || '') + ' ' + (r.desc_zh || '')).toLowerCase();
+        if (hay.indexOf(q) === -1) return false;
+      }
+      return true;
+    });
+  }
+
+  function render() {
+    var repos = applyFilters(getRepos());
+    if (!repos.length) {
+      listEl.innerHTML = '<div class="empty">No matching repos.</div>';
+      return;
+    }
+    var rows = repos.map(function (r, i) {
+      var color = r.langColor || (r.lang && LANG_COLORS[r.lang]) || '#8b949e';
+      return [
+        '<div class="repo">',
+          '<div class="row1">',
+            '<div class="rank">', String(i + 1).padStart(2, '0'), '</div>',
+            '<div class="name">',
+              '<a href="', escapeHTML(r.url), '" target="_blank" rel="noopener noreferrer">',
+                '<span class="owner">', escapeHTML(r.owner), ' / </span>',
+                escapeHTML(r.repo),
+              '</a>',
+            '</div>',
+          '</div>',
+          (r.desc_zh || r.desc) ? '<p class="desc">' + escapeHTML(r.desc_zh || r.desc) + '</p>' : '',
+          '<div class="stats">',
+            r.lang ? '<span class="lang"><span class="dot" style="background:' + escapeHTML(color) + '"></span>' + escapeHTML(r.lang) + '</span>' : '',
+            '<span title="Total stars">★ ' + fmtNum(r.stars || 0) + '</span>',
+            r.forks ? '<span title="Forks">⑂ ' + fmtNum(r.forks) + '</span>' : '',
+            r.today ? '<span class="today">▲ ' + escapeHTML(r.today) + '</span>' : '',
+          '</div>',
+        '</div>'
+      ].join('');
+    });
+    listEl.innerHTML = rows.join('');
+  }
+
+  function updateMeta() {
+    var since = sinceEl.value;
+    var ds = DATASETS[since] || { repos: [] };
+    var stamp = '';
+    try {
+      var d = new Date(FETCHED_AT);
+      if (!isNaN(d.getTime())) {
+        stamp = d.toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' });
+      } else {
+        stamp = FETCHED_AT;
+      }
+    } catch (_) { stamp = FETCHED_AT; }
+    metaEl.textContent = 'Updated ' + stamp + ' · ' + (ds.repos || []).length + ' repos';
+  }
+
+  function savePrefs() {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({
+        since: sinceEl.value, lang: langEl.value, search: searchEl.value
+      }));
+    } catch (_) {}
+  }
+
+  function restorePrefs() {
+    try {
+      var p = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
+      if (p.since && DATASETS[p.since]) sinceEl.value = p.since;
+      if (typeof p.search === 'string') searchEl.value = p.search;
+      // p.lang is restored in rebuildLanguageOptions (after options exist)
+      if (typeof p.lang === 'string') langEl.value = p.lang;
+    } catch (_) {}
+  }
+
+  buildPeriodOptions();
+  rebuildLanguageOptions();
+  restorePrefs();
+  // If restored `since` no longer exists in the new dropdown (e.g. yesterday's
+  // daily was rolled out), fall back to the first available option.
+  if (!sinceEl.value || !DATASETS[sinceEl.value]) {
+    var first = sinceEl.options[0];
+    if (first) sinceEl.value = first.value;
+  }
+  updateMeta();
+  render();
+
+  sinceEl.addEventListener('change', function () { savePrefs(); updateMeta(); render(); });
+  langEl.addEventListener('change', function () { savePrefs(); render(); });
+  searchEl.addEventListener('input', function () { savePrefs(); render(); });
+})();
+</script>
+</body>
+</html>
