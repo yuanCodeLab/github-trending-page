@@ -1,0 +1,345 @@
+<!doctype html>
+<html lang="zh-Hans">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Demo — GitHub Trending with AI 增强信息</title>
+<meta name="description" content="GitHub Trending 页面增强:每个项目附 AI 总结、适用场景、AI Agent 安装提示词。这是一个静态 demo 用来评估视觉/交互方案,数据为手工撰写。" />
+<meta name="robots" content="noindex" />
+<style>
+  :root { color-scheme: light; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: #ffffff; color: #1f2328; font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif; }
+  .wrap { max-width: 1280px; margin: 0 auto; padding: 20px 22px 60px; }
+
+  /* Demo banner */
+  .demo-banner { background: linear-gradient(90deg, #fff8c5 0%, #fff1a8 100%); border: 1px solid #d4a72c; border-radius: 8px; padding: 10px 14px; margin-bottom: 20px; font-size: 13px; color: #57430b; display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+  .demo-banner strong { font-weight: 600; }
+  .demo-banner a { color: #0969da; text-decoration: none; margin-left: auto; font-weight: 500; }
+  .demo-banner a:hover { text-decoration: underline; }
+
+  header.top { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; flex-wrap: wrap; }
+  header.top h1 { font-size: 20px; margin: 0; font-weight: 600; }
+  header.top .meta { color: #59636e; font-size: 12px; margin-left: auto; }
+  .controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 12px 0 16px; border-bottom: 1px solid #d1d9e0; margin-bottom: 16px; }
+  .controls label { font-size: 12px; color: #59636e; margin-right: 4px; }
+  .controls select, .controls input { font: inherit; padding: 6px 10px; border: 1px solid #d1d9e0; border-radius: 6px; background: #f6f8fa; color: #1f2328; }
+  .controls input { min-width: 160px; }
+
+  /* Two-col repo layout */
+  .repo { padding: 18px 0; border-bottom: 1px solid #eaeef2; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr); gap: 24px; align-items: start; }
+  .repo:last-child { border-bottom: 0; }
+
+  /* Left column (existing) */
+  .repo-main .row1 { display: flex; align-items: baseline; gap: 10px; }
+  .repo-main .rank { color: #59636e; font-size: 12px; min-width: 26px; }
+  .repo-main .name { font-size: 16px; font-weight: 600; }
+  .repo-main .name a { color: #0969da; text-decoration: none; }
+  .repo-main .name a:hover { text-decoration: underline; }
+  .repo-main .name .owner { color: #0969da; font-weight: 400; }
+  .repo-main p.desc { color: #59636e; margin: 6px 0 8px 36px; font-size: 13px; }
+  .repo-main .stats { display: flex; flex-wrap: wrap; gap: 14px; align-items: center; margin-left: 36px; color: #59636e; font-size: 12px; }
+  .repo-main .stats .lang { display: inline-flex; align-items: center; gap: 5px; }
+  .repo-main .stats .dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; border: 1px solid rgba(0,0,0,0.08); }
+  .repo-main .stats .today { color: #1f2328; font-weight: 500; }
+
+  /* Right column — AI panel */
+  .ai-panel { background: #f6f8fa; border: 1px solid #d0d7de; border-radius: 8px; padding: 14px 16px; font-size: 13px; line-height: 1.55; }
+  .ai-panel section + section { margin-top: 12px; padding-top: 12px; border-top: 1px solid #e2e6ea; }
+  .ai-panel h3 { display: flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 600; color: #59636e; text-transform: uppercase; letter-spacing: 0.04em; margin: 0 0 6px 0; }
+  .ai-panel h3 .badge { background: #1f2328; color: #fff; font-size: 9px; font-weight: 600; padding: 1px 5px; border-radius: 3px; letter-spacing: 0.02em; }
+  .ai-panel .summary { color: #1f2328; }
+  .ai-panel ul.scenarios { margin: 0; padding-left: 18px; color: #1f2328; }
+  .ai-panel ul.scenarios li { margin: 2px 0; }
+  .ai-panel .prompt-box { position: relative; }
+  .ai-panel pre.prompt { background: #ffffff; border: 1px solid #d0d7de; border-radius: 6px; padding: 10px 12px; font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace; font-size: 12px; line-height: 1.5; color: #1f2328; white-space: pre-wrap; word-break: break-word; margin: 0; max-height: 200px; overflow: auto; }
+  .ai-panel .copy-btn { position: absolute; top: 6px; right: 6px; background: #ffffff; border: 1px solid #d0d7de; border-radius: 5px; padding: 3px 8px; font-size: 11px; font-weight: 500; color: #1f2328; cursor: pointer; transition: all 0.15s; }
+  .ai-panel .copy-btn:hover { background: #f6f8fa; border-color: #1f2328; }
+  .ai-panel .copy-btn.copied { background: #dafbe1; border-color: #1a7f37; color: #1a7f37; }
+
+  .footer-note { margin-top: 24px; color: #8b949e; font-size: 11px; text-align: center; line-height: 1.6; }
+
+  @media (max-width: 880px) {
+    .repo { grid-template-columns: 1fr; gap: 14px; }
+    .ai-panel { font-size: 13px; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="demo-banner">
+    <strong>📐 Demo / Mockup</strong>
+    <span>右栏 AI 增强信息为手工撰写,用来评估视觉与交互方案。如果方案 OK,下一步把 Gemini 的 prompt 扩展输出这三个字段,workflow 会自动填充。</span>
+    <a href="/">← 返回真实页面</a>
+  </div>
+
+  <header class="top">
+    <h1>GitHub Trending</h1>
+    <span class="meta">Demo · 5 sample repos · May 5, 2026</span>
+  </header>
+
+  <div class="controls">
+    <label for="since">Period</label>
+    <select id="since" disabled><option>今日</option></select>
+    <label for="lang">Language</label>
+    <select id="lang" disabled><option>All languages</option></select>
+    <label for="search">Search</label>
+    <input id="search" type="search" placeholder="filter by name or description" disabled />
+  </div>
+
+  <div id="list">
+
+    <!-- 1. Hmbown/DeepSeek-TUI -->
+    <div class="repo">
+      <div class="repo-main">
+        <div class="row1">
+          <div class="rank">01</div>
+          <div class="name"><a href="https://github.com/Hmbown/DeepSeek-TUI" target="_blank" rel="noopener noreferrer"><span class="owner">Hmbown / </span>DeepSeek-TUI</a></div>
+        </div>
+        <p class="desc">用于 DeepSeek 模型的终端代码助手</p>
+        <div class="stats">
+          <span class="lang"><span class="dot" style="background:#dea584"></span>Rust</span>
+          <span title="Total stars">★ 5.7k</span>
+          <span title="Forks">⑂ 422</span>
+          <span class="today">▲ 2,389 stars today</span>
+        </div>
+      </div>
+      <div class="ai-panel">
+        <section>
+          <h3><span class="badge">AI</span>总结</h3>
+          <p class="summary">Rust 写的终端 UI,把 DeepSeek 模型整合进 shell 里。提供代码补全、解释、重构等命令式交互,适合在 tmux/iTerm 这类不愿离开终端的工作流里替代 IDE 助手。本地无 Electron / 浏览器进程,启动 <50ms。</p>
+        </section>
+        <section>
+          <h3>适用场景</h3>
+          <ul class="scenarios">
+            <li>用 Vim/Neovim 或纯 shell 工作,不想跳出来用图形 IDE</li>
+            <li>已经在用 DeepSeek API,想要轻量本地客户端</li>
+            <li>SSH 远程开发 / 服务器调试,不方便跑桌面应用</li>
+            <li>想要一个比 GitHub Copilot CLI 更快的代码助手</li>
+          </ul>
+        </section>
+        <section>
+          <h3>AI Agent 安装提示词</h3>
+          <div class="prompt-box">
+            <pre class="prompt">把 https://github.com/Hmbown/DeepSeek-TUI 克隆到 ~/Code/,
+照 README 用 cargo install 安装,
+帮我把 DeepSeek API key 写到 ~/.config/deepseek-tui/config.toml(我等下会粘 key 进去),
+最后用 echo 'q: hello' | deepseek-tui 跑一遍冒烟测试,贴输出给我。</pre>
+            <button class="copy-btn" data-copy="把 https://github.com/Hmbown/DeepSeek-TUI 克隆到 ~/Code/,&#10;照 README 用 cargo install 安装,&#10;帮我把 DeepSeek API key 写到 ~/.config/deepseek-tui/config.toml(我等下会粘 key 进去),&#10;最后用 echo 'q: hello' | deepseek-tui 跑一遍冒烟测试,贴输出给我。">复制</button>
+          </div>
+        </section>
+      </div>
+    </div>
+
+    <!-- 2. ruvnet/ruflo -->
+    <div class="repo">
+      <div class="repo-main">
+        <div class="row1">
+          <div class="rank">02</div>
+          <div class="name"><a href="https://github.com/ruvnet/ruflo" target="_blank" rel="noopener noreferrer"><span class="owner">ruvnet / </span>ruflo</a></div>
+        </div>
+        <p class="desc">🌊 面向 Claude 的领先智能体编排平台。部署智能多智能体集群,协调自主工作流,构建对话式 AI 系统。具备企业级架构、自学习集群智能、RAG 集成以及原生的 Claude Code / Codex 集成</p>
+        <div class="stats">
+          <span class="lang"><span class="dot" style="background:#3178c6"></span>TypeScript</span>
+          <span title="Total stars">★ 43k</span>
+          <span title="Forks">⑂ 4.8k</span>
+          <span class="today">▲ 2,441 stars today</span>
+        </div>
+      </div>
+      <div class="ai-panel">
+        <section>
+          <h3><span class="badge">AI</span>总结</h3>
+          <p class="summary">基于 Claude / Codex 的多 agent 编排框架。开发者用 YAML 定义 agent 的角色、工具和协作流,平台负责消息路由、状态机、错误重试。集群可以横向 scale,单个 agent 失败时自动 reroute 到 backup。比 LangGraph 更接近"生产级"语义,自带 RAG + 长时记忆。</p>
+        </section>
+        <section>
+          <h3>适用场景</h3>
+          <ul class="scenarios">
+            <li>需要把多个 LLM agent 串成自动化流水线(客服、工单分发、数据处理)</li>
+            <li>已有 Claude Code / Codex 工作流,想加协调层</li>
+            <li>团队想自建 agent 平台但不想从零造轮子</li>
+            <li>原型需要在 single-process demo 和企业级 cluster 之间无缝放大</li>
+          </ul>
+        </section>
+        <section>
+          <h3>AI Agent 安装提示词</h3>
+          <div class="prompt-box">
+            <pre class="prompt">在我当前项目 root 下:
+1. 跑 npx ruflo init,创建 .ruflo/ 配置目录。
+2. 用 npm install ruflo 安装 SDK。
+3. 在 .ruflo/agents.yml 里加两个 agent:planner(用 Claude Sonnet)和 executor(用 Claude Haiku),让 planner 把任务拆给 executor。
+4. 写个 demo 脚本 examples/hello.ts 跑一次完整流程,把输出贴给我。</pre>
+            <button class="copy-btn" data-copy="在我当前项目 root 下:&#10;1. 跑 npx ruflo init,创建 .ruflo/ 配置目录。&#10;2. 用 npm install ruflo 安装 SDK。&#10;3. 在 .ruflo/agents.yml 里加两个 agent:planner(用 Claude Sonnet)和 executor(用 Claude Haiku),让 planner 把任务拆给 executor。&#10;4. 写个 demo 脚本 examples/hello.ts 跑一次完整流程,把输出贴给我。">复制</button>
+          </div>
+        </section>
+      </div>
+    </div>
+
+    <!-- 3. virattt/dexter -->
+    <div class="repo">
+      <div class="repo-main">
+        <div class="row1">
+          <div class="rank">03</div>
+          <div class="name"><a href="https://github.com/virattt/dexter" target="_blank" rel="noopener noreferrer"><span class="owner">virattt / </span>dexter</a></div>
+        </div>
+        <p class="desc">用于深度金融研究的自主智能体</p>
+        <div class="stats">
+          <span class="lang"><span class="dot" style="background:#3178c6"></span>TypeScript</span>
+          <span title="Total stars">★ 23k</span>
+          <span title="Forks">⑂ 2.9k</span>
+          <span class="today">▲ 660 stars today</span>
+        </div>
+      </div>
+      <div class="ai-panel">
+        <section>
+          <h3><span class="badge">AI</span>总结</h3>
+          <p class="summary">专门做深度金融研究的 LLM agent。能自主拉财报、SEC filing、新闻、行业报告,做多步推理(估值模型 / 同行对比 / 风险敞口),最后输出投研 memo。区别于通用 agent 的关键是它内置了金融领域的工具集和提示词,不需要你手撸 SEC EDGAR 的 API 集成。</p>
+        </section>
+        <section>
+          <h3>适用场景</h3>
+          <ul class="scenarios">
+            <li>个人投资者做股票深度研究,代替手工读 10-K</li>
+            <li>买方分析师初稿撰写,人工再 review</li>
+            <li>对冲基金/家办内部知识库 + 自动化研究流水线</li>
+            <li>金融自媒体快速产出有数据支撑的分析文章</li>
+          </ul>
+        </section>
+        <section>
+          <h3>AI Agent 安装提示词</h3>
+          <div class="prompt-box">
+            <pre class="prompt">克隆 https://github.com/virattt/dexter 到 ~/Code/dexter,
+按 README 跑 pnpm install,
+帮我配 .env(OPENAI_API_KEY、ALPHA_VANTAGE_API_KEY、SEC_API_USER_AGENT 我等下贴),
+然后跑 pnpm dev:research --ticker NVDA 测试一次,
+把它生成的 research memo 拷给我。</pre>
+            <button class="copy-btn" data-copy="克隆 https://github.com/virattt/dexter 到 ~/Code/dexter,&#10;按 README 跑 pnpm install,&#10;帮我配 .env(OPENAI_API_KEY、ALPHA_VANTAGE_API_KEY、SEC_API_USER_AGENT 我等下贴),&#10;然后跑 pnpm dev:research --ticker NVDA 测试一次,&#10;把它生成的 research memo 拷给我。">复制</button>
+          </div>
+        </section>
+      </div>
+    </div>
+
+    <!-- 4. docusealco/docuseal -->
+    <div class="repo">
+      <div class="repo-main">
+        <div class="row1">
+          <div class="rank">04</div>
+          <div class="name"><a href="https://github.com/docusealco/docuseal" target="_blank" rel="noopener noreferrer"><span class="owner">docusealco / </span>docuseal</a></div>
+        </div>
+        <p class="desc">开源的 DocuSign 替代品。创建、填写和签署电子文档 ✍️</p>
+        <div class="stats">
+          <span class="lang"><span class="dot" style="background:#701516"></span>Ruby</span>
+          <span title="Total stars">★ 14k</span>
+          <span title="Forks">⑂ 1.2k</span>
+          <span class="today">▲ 929 stars today</span>
+        </div>
+      </div>
+      <div class="ai-panel">
+        <section>
+          <h3><span class="badge">AI</span>总结</h3>
+          <p class="summary">自托管的电子签名平台,UI 和体验对标 DocuSign / HelloSign。Rails + Vue,支持 PDF 上传、字段标注、多人顺序签署、邮件通知、审计追踪、API + Webhook。AGPL 协议;商业版加了 SSO、品牌定制、自动表单解析。零服务器版本可以 docker compose up 直接跑起来。</p>
+        </section>
+        <section>
+          <h3>适用场景</h3>
+          <ul class="scenarios">
+            <li>不想付 DocuSign 订阅费的中小企业</li>
+            <li>合规要求合同数据不出公司服务器</li>
+            <li>SaaS 产品想嵌入电子签署作为子功能(用 API 集成)</li>
+            <li>开发者用来做 e-sign 流程的快速 demo / POC</li>
+          </ul>
+        </section>
+        <section>
+          <h3>AI Agent 安装提示词</h3>
+          <div class="prompt-box">
+            <pre class="prompt">在我服务器上(Ubuntu 24.04)用 docker compose 部署 https://github.com/docusealco/docuseal:
+1. 克隆 repo,把 docker-compose.yml 拷一份到 /srv/docuseal/。
+2. 帮我生成 .env(DB 密码、SMTP 配置等我会贴)。
+3. docker compose up -d,等服务起来。
+4. 用 curl 测一下 http://localhost:3000 返回 200。
+5. 配 nginx 反向代理到 docuseal.example.com(SSL 用 certbot 自动签)。</pre>
+            <button class="copy-btn" data-copy="在我服务器上(Ubuntu 24.04)用 docker compose 部署 https://github.com/docusealco/docuseal:&#10;1. 克隆 repo,把 docker-compose.yml 拷一份到 /srv/docuseal/。&#10;2. 帮我生成 .env(DB 密码、SMTP 配置等我会贴)。&#10;3. docker compose up -d,等服务起来。&#10;4. 用 curl 测一下 http://localhost:3000 返回 200。&#10;5. 配 nginx 反向代理到 docuseal.example.com(SSL 用 certbot 自动签)。">复制</button>
+          </div>
+        </section>
+      </div>
+    </div>
+
+    <!-- 5. bwya77/vscode-dark-islands -->
+    <div class="repo">
+      <div class="repo-main">
+        <div class="row1">
+          <div class="rank">05</div>
+          <div class="name"><a href="https://github.com/bwya77/vscode-dark-islands" target="_blank" rel="noopener noreferrer"><span class="owner">bwya77 / </span>vscode-dark-islands</a></div>
+        </div>
+        <p class="desc">基于 easemate IDE 和 Jetbrains islands 主题的 VSCode 主题</p>
+        <div class="stats">
+          <span class="lang"><span class="dot" style="background:#012456"></span>PowerShell</span>
+          <span title="Total stars">★ 7.6k</span>
+          <span title="Forks">⑂ 229</span>
+          <span class="today">▲ 665 stars today</span>
+        </div>
+      </div>
+      <div class="ai-panel">
+        <section>
+          <h3><span class="badge">AI</span>总结</h3>
+          <p class="summary">VSCode / Cursor / Windsurf 通用的暗色主题,移植自 JetBrains 家族(IntelliJ / WebStorm)的 Dark Islands 配色。蓝绿冷色调,关键字高对比,长时间盯屏幕舒服。包含语义高亮规则、Git diff 配色、终端 ANSI palette,装完不需要再调。</p>
+        </section>
+        <section>
+          <h3>适用场景</h3>
+          <ul class="scenarios">
+            <li>从 JetBrains 系迁到 VSCode,想保留熟悉配色</li>
+            <li>对默认 Dark+ 视觉疲劳,想换个低饱和度主题</li>
+            <li>团队统一编辑器视觉规范(主题、字体、Git 配色)</li>
+          </ul>
+        </section>
+        <section>
+          <h3>AI Agent 安装提示词</h3>
+          <div class="prompt-box">
+            <pre class="prompt">在我的 VSCode 里装 Dark Islands 主题:
+1. 用 code --install-extension bwya77.vscode-dark-islands,
+2. 然后 settings.json 里把 workbench.colorTheme 设成 "Dark Islands",
+3. 顺便把 editor.fontFamily 改成 "JetBrains Mono",fontSize 14,fontLigatures: true。
+   做完贴一下 settings.json 让我 review。</pre>
+            <button class="copy-btn" data-copy="在我的 VSCode 里装 Dark Islands 主题:&#10;1. 用 code --install-extension bwya77.vscode-dark-islands,&#10;2. 然后 settings.json 里把 workbench.colorTheme 设成 &quot;Dark Islands&quot;,&#10;3. 顺便把 editor.fontFamily 改成 &quot;JetBrains Mono&quot;,fontSize 14,fontLigatures: true。&#10;   做完贴一下 settings.json 让我 review。">复制</button>
+          </div>
+        </section>
+      </div>
+    </div>
+
+  </div>
+
+  <div class="footer-note">
+    Demo 数据为手工撰写。生产实现:在 build.mjs 的翻译 prompt 里加 3 个新字段(<code>summary_zh</code>、<code>scenarios</code>、<code>agent_install_prompt</code>),Gemini 一次返回。<br>
+    成本估算:每条 repo 多 ~300 tokens 输出,日均 ~70 条 → +20K tokens/day,gemini-2.5-flash-lite 免费 tier 完全 cover。
+  </div>
+</div>
+
+<script>
+(function () {
+  // Copy-to-clipboard for install prompts
+  document.querySelectorAll('.copy-btn').forEach(function (btn) {
+    btn.addEventListener('click', async function () {
+      const text = btn.getAttribute('data-copy') || '';
+      try {
+        await navigator.clipboard.writeText(text);
+      } catch (_) {
+        // Fallback for older browsers
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.position = 'fixed';
+        ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.select();
+        try { document.execCommand('copy'); } catch (_) {}
+        document.body.removeChild(ta);
+      }
+      btn.textContent = '已复制 ✓';
+      btn.classList.add('copied');
+      setTimeout(function () {
+        btn.textContent = '复制';
+        btn.classList.remove('copied');
+      }, 1800);
+    });
+  });
+})();
+</script>
+</body>
+</html>
