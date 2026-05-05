@@ -6,7 +6,10 @@
 //   4. Renders new index.html from scripts/template.html with all datasets embedded
 //
 // Required env: GEMINI_API_KEY
-// Optional env: GEMINI_MODEL (default: gemini-2.0-flash)
+// Optional env:
+//   GEMINI_MODEL         (default: gemini-2.5-flash-lite)
+//   GEMINI_BASE_URL      (default: https://generativelanguage.googleapis.com — set this to point at a proxy)
+//   GEMINI_API_VERSION   (default: v1beta)
 
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { promises as fs } from 'node:fs';
@@ -152,13 +155,18 @@ function parseSearchPayload(html) {
 async function translateBatch(descs, apiKey, modelName) {
   if (!descs.length) return {};
   const genAI = new GoogleGenerativeAI(apiKey);
+  // Allow pointing at a proxy / alternate endpoint via env. Empty / unset → SDK defaults
+  // (https://generativelanguage.googleapis.com + v1beta).
+  const requestOptions = {};
+  if (process.env.GEMINI_BASE_URL) requestOptions.baseUrl = process.env.GEMINI_BASE_URL;
+  if (process.env.GEMINI_API_VERSION) requestOptions.apiVersion = process.env.GEMINI_API_VERSION;
   const model = genAI.getGenerativeModel({
     model: modelName,
     generationConfig: {
       responseMimeType: 'application/json',
       temperature: 0.4,
     },
-  });
+  }, requestOptions);
 
   const prompt = [
     '把下面 JSON 数组里每个英文 GitHub 仓库描述翻译成中文。要求:',
@@ -175,7 +183,23 @@ async function translateBatch(descs, apiKey, modelName) {
     JSON.stringify(descs),
   ].join('\n');
 
-  const result = await model.generateContent(prompt);
+  // Retry on transient Google-side errors (503 high demand, 429 rate limit, network blips).
+  let result;
+  let lastErr;
+  for (let attempt = 1; attempt <= 5; attempt++) {
+    try {
+      result = await model.generateContent(prompt);
+      break;
+    } catch (e) {
+      lastErr = e;
+      const status = e?.status || 0;
+      const transient = status === 429 || (status >= 500 && status < 600) || !status;
+      if (!transient || attempt === 5) throw e;
+      const waitSec = Math.min(60, 5 * 2 ** (attempt - 1)); // 5, 10, 20, 40, 60
+      console.log(`  Gemini ${status || 'network'} on attempt ${attempt}, retrying in ${waitSec}s`);
+      await new Promise((res) => setTimeout(res, waitSec * 1000));
+    }
+  }
   const text = result.response.text().trim();
 
   // Strip markdown fence if Gemini wrapped it despite responseMimeType
@@ -260,13 +284,16 @@ async function main() {
     console.error('GEMINI_API_KEY env var is required (or set SKIP_TRANSLATION=1 for a dry run)');
     process.exit(2);
   }
-  const modelName = process.env.GEMINI_MODEL || 'gemini-2.0-flash';
+  const modelName = process.env.GEMINI_MODEL || 'gemini-2.5-flash-lite';
 
   const today = new Date();
   const todayStr = today.toISOString().slice(0, 10);
   const year = today.getUTCFullYear();
 
-  console.log(`Refreshing for ${todayStr} using model ${modelName}`);
+  const endpointInfo = process.env.GEMINI_BASE_URL
+    ? `${process.env.GEMINI_BASE_URL}/${process.env.GEMINI_API_VERSION || 'v1beta'} (proxy)`
+    : 'https://generativelanguage.googleapis.com/v1beta (official)';
+  console.log(`Refreshing for ${todayStr} using model ${modelName} via ${endpointInfo}`);
 
   console.log('Loading existing artifact for history...');
   const existing = await loadExistingDatasets();

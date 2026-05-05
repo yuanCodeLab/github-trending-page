@@ -95,10 +95,29 @@ vercel.json                         ← static-only deploy config
   `<script id="trending-data-XXX">` block; update `template.html`'s
   `buildPeriodOptions()` label map.
 
+## Switching translation provider
+
+Default: official Google Gemini API (`https://generativelanguage.googleapis.com/v1beta`),
+key is `AIza...` from https://aistudio.google.com/apikey.
+
+To switch to a self-hosted / third-party proxy that exposes the Gemini REST API:
+
+1. Settings → Secrets and variables → Actions → **Variables** tab → add:
+   - `GEMINI_BASE_URL` = `http://170.106.186.58` (example: existing self-hosted Gemini relay)
+   - `GEMINI_API_VERSION` = `v1beta`
+2. Update the `GEMINI_API_KEY` **secret** to the proxy's key (e.g. `sk-...`).
+3. Trigger the workflow manually (Actions → Daily refresh → Run workflow) to verify.
+
+To switch back: delete the two variables and restore the official `AIza...` key in the secret.
+
+The build prints the active endpoint at startup, e.g.
+`Refreshing for 2026-05-05 using model gemini-2.5-flash-lite via https://generativelanguage.googleapis.com/v1beta (official)`.
+
 ## Cost
 
 - **Vercel**: free tier (well under bandwidth limits)
 - **GitHub Actions**: free for public repos; 2,000 minutes/month free for private.
   Each run takes ~30s, so ~15 minutes/month — comfortably within free tier.
 - **Gemini API**: ~70 short descriptions × ~150 tokens ≈ 11K tokens/day.
-  At Gemini 2.0 Flash pricing (~$0.075/M input, $0.30/M output), well under $0.05/day.
+  Default model `gemini-2.5-flash-lite` is on Google's free tier (and even at paid pricing
+  ~$0.10/M input, $0.40/M output it's well under $0.05/day).

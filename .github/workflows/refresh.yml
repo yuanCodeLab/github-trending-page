@@ -32,7 +32,14 @@ jobs:
       - name: Build index.html
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          # GEMINI_MODEL: gemini-2.0-flash    # 取消注释可换模型
+          # 默认走官方 https://generativelanguage.googleapis.com/v1beta
+          # 切到自建/第三方代理:在 repo Settings → Variables 里设
+          #   GEMINI_BASE_URL=http://170.106.186.58
+          #   GEMINI_API_VERSION=v1beta
+          # 同时把 GEMINI_API_KEY secret 改成代理的 key (sk-...)
+          GEMINI_MODEL: ${{ vars.GEMINI_MODEL }}
+          GEMINI_BASE_URL: ${{ vars.GEMINI_BASE_URL }}
+          GEMINI_API_VERSION: ${{ vars.GEMINI_API_VERSION }}
         run: node scripts/build.mjs
 
       - name: Commit if changed
