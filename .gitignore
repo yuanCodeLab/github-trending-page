@@ -4,3 +4,8 @@ node_modules/
 .env.local
 .vercel
 *.log
+
+# 本地草稿(公众号文章 + 截图素材),不进 repo
+article.md
+img/
+test-enrich.mjs
