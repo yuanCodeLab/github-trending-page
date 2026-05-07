@@ -104,8 +104,8 @@ retry budget, so worst case is 10 attempts before the build fails.
 **Primary** (default): official Google Gemini API
 (`https://generativelanguage.googleapis.com/v1beta`), key from https://aistudio.google.com/apikey.
 
-**Fallback** (configured): self-hosted/third-party Gemini relay at
-`http://170.106.186.58/v1beta` (auth uses `sk-...` keys).
+**Fallback** (configured): self-hosted/third-party Gemini relay
+(URL configured via `GEMINI_FALLBACK_BASE_URL` repo variable, auth uses `sk-...` keys).
 
 ### Env reference
 
@@ -126,7 +126,7 @@ Build start-up log lists the active providers in order:
 Refreshing for 2026-05-05
   translation providers (2):
     primary: https://generativelanguage.googleapis.com/v1beta model=gemini-2.5-flash
-    fallback: http://170.106.186.58/v1beta model=gemini-2.5-flash
+    fallback: http://&lt;your-relay-host&gt;/v1beta model=gemini-2.5-flash
 ```
 
 When a provider fails:

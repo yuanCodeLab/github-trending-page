@@ -13,7 +13,7 @@
 //
 // Optional fallback provider (used automatically if primary fails after retries):
 //   GEMINI_FALLBACK_API_KEY      — fallback only activates if this is set
-//   GEMINI_FALLBACK_BASE_URL     (e.g. http://170.106.186.58)
+//   GEMINI_FALLBACK_BASE_URL     (e.g. http://your-gemini-relay-host)
 //   GEMINI_FALLBACK_API_VERSION  (default: v1beta)
 //   GEMINI_FALLBACK_MODEL        (default: same as GEMINI_MODEL)
 
