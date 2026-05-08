@@ -196,11 +196,17 @@ const ENRICHMENT_PROMPT_HEADER = [
   '你是 GitHub 仓库的中文增强助手。我会给你 JSON 数组,每条仓库含 owner、repo、desc(原始英文描述)。',
   '请为每条返回 JSON 对象,包含以下 4 个字段(顺序和数量必须与输入一致):',
   '',
+  '⚠️ desc 字段可能为空字符串(GitHub 上有些仓库没填描述)。这时请根据 owner + repo 名字合理推断,',
+  '并照常输出 4 个字段;不要返回空字符串。例如 { owner: "anthropics", repo: "financial-services" }',
+  '可以推断为 Anthropic 出的金融服务相关项目,desc_zh / summary_zh / scenarios 都基于这个推断写。',
+  'agent_install_prompt 可以保守一点(让 agent 克隆后先看 README 再决定怎么装),但仍然要有具体内容。',
+  '',
   '1. desc_zh — 把 desc 翻译成中文。',
   '   - 流畅自然中文,避免机翻味',
   '   - 技术术语保留英文(RAG, MCP, API, SDK, CLI, LLM, OAuth, GraphQL, Embedding 等)',
   '   - 项目名 / 产品名 / 人名保留英文(Suno, Discord, Claude, Codex, n8n, Karpathy 等)',
   '   - emoji 保留;描述末尾的省略号(…)保留',
+  '   - 如果 desc 为空,根据 owner/repo 名给一句简短的推断式中文描述(15-30 字)',
   '',
   '2. summary_zh — 1-2 句中文总结(50-150 字)。比 desc 多说一层:它是什么、怎么实现、跟同类相比的卖点。',
   '',
@@ -349,10 +355,11 @@ function buildEnrichmentCache(existingDatasets) {
   const cache = {};
   for (const ds of Object.values(existingDatasets)) {
     for (const r of ds.repos || []) {
-      if (!r.desc) continue;
+      // desc may be empty (some Trending repos have no description) — still cache so we don't
+      // re-translate the same desc-less repo every day.
       const hasAll = r.desc_zh && r.summary_zh && Array.isArray(r.scenarios) && r.scenarios.length && r.agent_install_prompt;
       if (!hasAll) continue;
-      const key = `${r.owner}/${r.repo}|${r.desc}`;
+      const key = `${r.owner}/${r.repo}|${r.desc || ''}`;
       cache[key] = {
         desc_zh: r.desc_zh,
         summary_zh: r.summary_zh,
@@ -461,12 +468,13 @@ async function main() {
   const todoRepos = [];
   for (const ds of Object.values(fresh)) {
     for (const r of ds.repos) {
-      if (!r.desc) continue;
-      const key = `${r.owner}/${r.repo}|${r.desc}`;
+      const desc = r.desc || '';
+      const key = `${r.owner}/${r.repo}|${desc}`;
       if (seenKeys.has(key)) continue;
       seenKeys.add(key);
       if (!enrichmentCache[key]) {
-        todoRepos.push({ owner: r.owner, repo: r.repo, desc: r.desc });
+        // Pass desc-less repos to Gemini too — it can usually infer from owner/repo name.
+        todoRepos.push({ owner: r.owner, repo: r.repo, desc });
       }
     }
   }
@@ -481,7 +489,7 @@ async function main() {
     const newEnrichments = await translateAll(todoRepos, providers);
     for (let i = 0; i < todoRepos.length; i++) {
       const t = todoRepos[i];
-      const key = `${t.owner}/${t.repo}|${t.desc}`;
+      const key = `${t.owner}/${t.repo}|${t.desc || ''}`;
       enrichmentCache[key] = newEnrichments[i];
     }
   }
@@ -489,14 +497,7 @@ async function main() {
   // Apply enrichment to all fresh repos
   for (const ds of Object.values(fresh)) {
     for (const r of ds.repos) {
-      if (!r.desc) {
-        r.desc_zh = '';
-        r.summary_zh = '';
-        r.scenarios = [];
-        r.agent_install_prompt = '';
-        continue;
-      }
-      const key = `${r.owner}/${r.repo}|${r.desc}`;
+      const key = `${r.owner}/${r.repo}|${r.desc || ''}`;
       const e = enrichmentCache[key];
       if (e) {
         r.desc_zh = e.desc_zh || '';
